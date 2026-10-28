@@ -7,11 +7,17 @@ extract (GitHub -> data/raw JSON) -> load (JSON -> DuckDB raw_*) -> dbt build
 
 import logging
 import os
+import shutil
 import sys
+import time
 from pathlib import Path
 
-from prefect import flow, get_run_logger, task
+import duckdb
+from prefect import flow, get_run_logger, task, unmapped
 from prefect.blocks.system import Secret
+
+import extract as ex
+from gh_client import ODOMETER, make_client
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -29,6 +35,8 @@ if os.getenv("REPOS_OVERRIDE"):
 
 # Fixed analysis window start; DEV_START_DATE shrinks the window during development
 WINDOW_START = os.getenv("DEV_START_DATE", "2024-01-01")
+WINDOW_START_ISO = f"{WINDOW_START}T00:00:00Z"
+LOADED_MARKER = DATA_RAW / "_LOADED"  # created by Task 2 once data/raw is safe in DuckDB
 
 SECRET_BLOCK = "yxf9tv-pat"
 
@@ -87,11 +95,50 @@ def get_github_token() -> str:
 # ---------------------------------------------------------------------------
 # The six core tasks (stubs; each section of the plan fills one in)
 # ---------------------------------------------------------------------------
+def read_watermarks() -> dict[tuple[str, str], str]:
+    """Newest updated_at per (repo, endpoint) from _load_state; {} before the first load."""
+    if not DB_PATH.exists():
+        return {}
+    try:
+        with duckdb.connect(str(DB_PATH), read_only=True) as con:
+            rows = con.execute(
+                "SELECT repo, endpoint, strftime(max_updated_at, '%Y-%m-%dT%H:%M:%SZ') "
+                "FROM _load_state"
+            ).fetchall()
+    except duckdb.CatalogException:  # database exists but no load has finished yet
+        return {}
+    return {(repo, endpoint): iso for repo, endpoint, iso in rows if iso}
+
+
 @task(name="1-extract")
-def extract(token: str) -> None:
-    """Task 1: GitHub API -> data/raw/<owner>__<repo>/<endpoint>/page_NNNN.json."""
+def extract(token: str) -> dict:
+    """Task 1: GitHub API -> data/raw/<owner>__<repo>/<endpoint>/page_NNNN.json.
+
+    _LOADED present -> last run fully loaded: delete data/raw and fetch only new records.
+    _LOADED absent  -> last run stopped early: keep data/raw and skip pages on disk.
+    """
     log = get_logger("extract")
-    log.info("extract stub: repos=%s window_start=%s", REPOS, WINDOW_START)
+    watermarks = read_watermarks()
+    if LOADED_MARKER.exists():
+        shutil.rmtree(DATA_RAW)
+        log.info("start fresh: _LOADED found, deleted data/raw/ (incremental from watermarks)")
+    elif DATA_RAW.exists():
+        log.info("resume: no _LOADED marker, keeping pages already in data/raw/")
+    else:
+        log.info("first run: no data/raw/, fetching the full window from %s", WINDOW_START_ISO)
+    log.info("watermarks: %s", watermarks or "none (full window)")
+
+    started, before = time.monotonic(), ODOMETER.total()
+    with make_client(token) as client:
+        # Concurrent fetching: one mapped task run per repo; all share gh_client.LIMITER
+        results = ex.extract_repo.map(
+            repo=REPOS, client=unmapped(client), base=unmapped(DATA_RAW),
+            window_start_iso=unmapped(WINDOW_START_ISO),
+            watermarks=unmapped(watermarks), log=unmapped(log),
+        ).result()
+    log.info("extract done in %.0fs: %d requests this task; odometer %s",
+             time.monotonic() - started, ODOMETER.total() - before, ODOMETER.summary())
+    return dict(zip(REPOS, results))
 
 
 @task(name="2-load")
@@ -143,11 +190,43 @@ def package_health_flow() -> None:
     validate()
     model()
     plot()
-    log.info("flow complete")
+    # Extended item: API odometer, total requests in this flow run
+    log.info("flow complete: API odometer = %d requests %s", ODOMETER.total(), ODOMETER.summary())
+
+
+# ---------------------------------------------------------------------------
+# Extended item: REST vs. GraphQL benchmark for PR + review ingestion
+# ---------------------------------------------------------------------------
+@flow(name="yxf9tv-rest-vs-graphql-benchmark")
+def rest_benchmark_flow(repo: str = "dask/dask", since: str = "2026-07-01") -> dict:
+    """Fetch the same PRs + reviews both ways into data/bench/ and log requests and runtime."""
+    log = get_logger("benchmark")
+    token, since_iso = get_github_token(), f"{since}T00:00:00Z"
+    bench = ROOT / "data" / "bench"
+    shutil.rmtree(bench, ignore_errors=True)  # always measure a cold fetch
+    report = {}
+    with make_client(token) as client:
+        t0 = time.monotonic()
+        counts, overflow = ex.land_pulls(client, repo, since_iso, bench / "graphql" / "pulls", log)
+        for number, cursor in overflow:
+            ex.land_review_overflow(client, repo, number, cursor, bench / "graphql" / "reviews", log)
+        report["graphql"] = {"requests": ex.requests_for("graphql", repo),
+                             "seconds": round(time.monotonic() - t0, 1),
+                             "prs": counts["records"], "reviews": counts["reviews"]}
+        t0 = time.monotonic()
+        rest = ex.land_pulls_rest(client, repo, since_iso, bench / "rest", log)
+        report["rest"] = {"requests": ex.requests_for("rest", repo),
+                          "seconds": round(time.monotonic() - t0, 1), **rest}
+    for api, r in report.items():
+        log.info("BENCHMARK %s %s since %s: %s", api.upper(), repo, since, r)
+    return report
 
 
 if __name__ == "__main__":
     try:
-        package_health_flow()
+        if sys.argv[1:2] == ["benchmark"]:  # uv run python main.py benchmark
+            rest_benchmark_flow()
+        else:
+            package_health_flow()
     except MissingTokenError as exc:
         sys.exit(f"ERROR: {exc}")
