@@ -1,3 +1,19 @@
 storage*
 github*
 CLAUDE.md
+
+# pipeline outputs (never commit)
+data/
+*.duckdb
+*.duckdb.wal
+logs/
+target/
+dbt_packages/
+
+# local only
+notes/
+.env
+.user.yml
+.venv/
+__pycache__/
+.pytest_cache/

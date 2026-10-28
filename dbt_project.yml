@@ -19,9 +19,10 @@ clean-targets:         # directories to be removed by `dbt clean`
 # directory as views. These settings can be overridden in the individual model
 # files using the `{{ config(...) }}` macro.
 
-# include additional dirs as needed below, not just "example"
+# staging models are thin views over the raw tables; marts are materialized tables
 models:
   package_health:
-    # Config indicated by + and applies to all files under models/example/
-    example:
+    staging:
       +materialized: view
+    marts:
+      +materialized: table
