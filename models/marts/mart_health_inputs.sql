@@ -24,6 +24,8 @@ pr_metrics as (
             / nullif(count(*) filter (where p.is_merged or p.is_closed_unmerged), 0)
                                                                  as merge_ratio,
         median(p.hours_to_merge)                                 as median_hours_to_merge,
+        -- review quality: merged PRs that had a non-author, non-bot approval
+        avg(p.has_approving_review::int) filter (where p.is_merged) as approving_review_share,
         count(*) filter (where p.is_stale)
             / nullif(count(*) filter (where p.is_open), 0)       as stale_open_share
     from prs p
@@ -37,6 +39,8 @@ monthly as (
         repo,
         regr_slope(commits, month_index)                           as commit_trend,
         regr_slope(commits, month_index) / nullif(avg(commits), 0) as commit_trend_pct,
+        -- consistency: steady monthly activity scores better than bursts
+        stddev_samp(commits) / nullif(avg(commits), 0)             as commit_cv,
         avg(active_contributors)                                   as avg_monthly_active_contributors
     from {{ ref('mart_repo_monthly') }}
     where not is_partial_month
@@ -86,10 +90,12 @@ select
     pm.median_hours_to_first_review,
     pm.merge_ratio,
     pm.median_hours_to_merge,
+    pm.approving_review_share,
     pm.stale_open_share,
     cm.commits_per_week,
     m.commit_trend,
     m.commit_trend_pct,
+    m.commit_cv,
     m.avg_monthly_active_contributors,
     a.top_author_commit_share,
     coalesce(rm.releases_per_year, 0)                            as releases_per_year,

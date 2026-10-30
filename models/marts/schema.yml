@@ -159,6 +159,8 @@ models:
         description: "Merged / (merged + closed unmerged) over human PRs in the window. Higher is better."
       - name: median_hours_to_merge
         description: "Median hours from open to merge over merged human PRs. Lower is better."
+      - name: approving_review_share
+        description: "Share of merged human PRs with a non-author, non-bot APPROVED review. Higher is better."
       - name: stale_open_share
         description: "Share of open human PRs with no update in 180 days. Lower is better."
       - name: commits_per_week
@@ -167,6 +169,8 @@ models:
         description: "regr_slope(commits, month_index) over complete months (commits per month, per month)."
       - name: commit_trend_pct
         description: "commit_trend / mean monthly commits: size-free trend (share per month). Higher is better."
+      - name: commit_cv
+        description: "stddev / mean of monthly human commits over complete months (lower = steadier). Lower is better."
       - name: avg_monthly_active_contributors
         description: "Mean distinct human PR authors per complete month. Higher is better."
       - name: top_author_commit_share

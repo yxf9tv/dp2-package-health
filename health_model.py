@@ -26,15 +26,21 @@ METRICS = [
            "review within 7 days."),
     Metric("median_hours_to_first_review", "responsiveness", False,
            "Median hours from PR creation to the first non-author, non-bot review."),
+    Metric("approving_review_share", "responsiveness", True,
+           "Share of merged human PRs with a non-author, non-bot APPROVED review "
+           "(review quality, not rubber-stamp merges)."),
     Metric("merge_ratio", "throughput", True,
            "Merged / (merged + closed unmerged) over human PRs in the window."),
     Metric("median_hours_to_merge", "throughput", False,
            "Median hours from PR creation to merge, over merged human PRs."),
     Metric("stale_open_share", "backlog", False,
            "Share of open human PRs with no update in 180 days."),
-    Metric("commit_trend_pct", "activity_trend", True,
+    Metric("commit_trend_pct", "activity", True,
            "Slope of monthly human commits over complete months / mean monthly commits "
            "(percent change per month; the trend component)."),
+    Metric("commit_cv", "activity", False,
+           "Coefficient of variation of monthly human commits over complete months "
+           "(lower = steadier activity)."),
     Metric("release_gap_cv", "release_cadence", False,
            "Coefficient of variation of days between releases (lower = more regular)."),
     Metric("top_author_commit_share", "contributor_base", False,
@@ -42,12 +48,13 @@ METRICS = [
 ]
 
 # Weights follow the order of ASSESSING-HEALTH.md: responsiveness first, then the bus
-# factor and steady activity, then release practice and backlog; throughput sits in the
-# middle because merge speed also depends on review policy. They sum to 1.
+# factor and recent, steady activity (trend + consistency), then release practice and
+# backlog; throughput sits in the middle because merge speed also depends on review
+# policy. They sum to 1.
 WEIGHTS = {
     "responsiveness": 0.25,
     "contributor_base": 0.20,
-    "activity_trend": 0.20,
+    "activity": 0.20,
     "throughput": 0.15,
     "release_cadence": 0.10,
     "backlog": 0.10,
