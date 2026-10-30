@@ -1,6 +1,6 @@
 # Submission Checklist
 
-Due: Nov 02, 2026. See the [README](README.md) for full grading criteria.
+Due: Nov 02, 2026. See the [assignment brief](ASSIGNMENT.md) for full grading criteria.
 
 ## Submit in Canvas
 
