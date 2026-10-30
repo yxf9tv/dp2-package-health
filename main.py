@@ -20,6 +20,7 @@ from prefect_dbt import PrefectDbtRunner, PrefectDbtSettings
 
 import extract as ex
 import loader as ld
+import validation as va
 from gh_client import ODOMETER, make_client
 
 # ---------------------------------------------------------------------------
@@ -197,10 +198,17 @@ def dbt_build() -> dict:
 
 
 @task(name="4-validate")
-def validate() -> None:
-    """Task 4: Python checks across files, raw tables and models; outliers; stats."""
+def validate() -> dict:
+    """Task 4: Python checks across files, raw tables and models; outliers; stats.
+
+    Any completeness failure raises, so the flow fails before modeling.
+    """
     log = get_logger("validate")
-    log.info("validate stub")
+    try:
+        return va.run_validation(DB_PATH, DATA_RAW, LOG_DIR, log)
+    except Exception:
+        log.exception("validation failed; tasks 5-6 will not run")
+        raise
 
 
 @task(name="5-model")
