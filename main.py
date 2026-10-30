@@ -21,6 +21,7 @@ from prefect_dbt import PrefectDbtRunner, PrefectDbtSettings
 import extract as ex
 import health_model as hm
 import loader as ld
+import plotting as pl
 import validation as va
 from gh_client import ODOMETER, make_client
 
@@ -247,10 +248,26 @@ def model() -> list[dict]:
 
 
 @task(name="6-plot")
-def plot() -> None:
-    """Task 6: three multi-dimensional PNGs in plots/."""
+def plot() -> list[str]:
+    """Task 6: three multi-dimensional PNGs in plots/ (committed to the repo)."""
     log = get_logger("plot")
-    log.info("plot stub")
+    try:
+        # Not read_only: dbt-duckdb holds a connection in this process (see validation.py)
+        with duckdb.connect(str(DB_PATH)) as con:
+            con.execute("SET TimeZone = 'UTC'")
+            ranking = con.execute("SELECT * FROM health_ranking").df()
+            monthly = con.execute("SELECT * FROM mart_repo_monthly").df()
+        paths = [
+            pl.plot_dimension_profile(ranking, PLOTS_DIR / "1_dimension_profile.png"),
+            pl.plot_monthly_trends(monthly, PLOTS_DIR / "2_monthly_trends.png"),
+            pl.plot_review_vs_merge(monthly, PLOTS_DIR / "3_review_vs_merge.png"),
+        ]
+    except Exception:
+        log.exception("plotting failed")
+        raise
+    for path in paths:
+        log.info("wrote %s", path.relative_to(ROOT))
+    return [str(path) for path in paths]
 
 
 # ---------------------------------------------------------------------------
