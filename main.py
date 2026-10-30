@@ -19,6 +19,7 @@ from prefect.blocks.system import Secret
 from prefect_dbt import PrefectDbtRunner, PrefectDbtSettings
 
 import extract as ex
+import health_model as hm
 import loader as ld
 import validation as va
 from gh_client import ODOMETER, make_client
@@ -212,10 +213,37 @@ def validate() -> dict:
 
 
 @task(name="5-model")
-def model() -> None:
-    """Task 5: health score from mart_health_inputs; ranking written to DuckDB."""
+def model() -> list[dict]:
+    """Task 5: health score from mart_health_inputs; ranking written to DuckDB.
+
+    Writes health_ranking (one row per repo) and health_metric_scores (repo x metric).
+    """
     log = get_logger("model")
-    log.info("model stub")
+    try:
+        # Not read_only: dbt-duckdb holds a connection in this process (see validation.py)
+        with duckdb.connect(str(DB_PATH)) as con:
+            inputs = con.execute("SELECT * FROM mart_health_inputs").df()
+            run_time = con.execute("SELECT run_time FROM dim_run").fetchall()[0][0]
+            scores = hm.signed_z_scores(inputs)
+            ranked = hm.rank_repos(hm.subscores(scores))
+            ranked["run_time"] = run_time
+            con.register("ranked_df", ranked)
+            con.register("scores_df", scores)
+            con.execute("CREATE OR REPLACE TABLE health_ranking AS SELECT * FROM ranked_df")
+            con.execute("CREATE OR REPLACE TABLE health_metric_scores AS SELECT * FROM scores_df")
+    except Exception:
+        log.exception("health model failed")
+        raise
+    log.info("METRICS (direction, weight of the dimension)\n%s", "\n".join(
+        f"  {m.column:<30} {m.dimension:<17} {'higher' if m.higher_is_better else 'lower ':<6} "
+        f"is healthier  w={hm.WEIGHTS[m.dimension]:.2f}  {m.definition}" for m in hm.METRICS))
+    log.info("SIGNED Z-SCORES (positive = healthier)\n%s", scores.pivot(
+        index="metric", columns="repo", values="signed_z").round(2).to_string())
+    log.info("HEALTH RANKING (score = weighted sum of dimension subscores)\n%s",
+             ranked.drop(columns="run_time").round(2).to_string(index=False))
+    log.info("wrote health_ranking (%d rows) and health_metric_scores (%d rows) to %s",
+             len(ranked), len(scores), DB_PATH.name)
+    return ranked.drop(columns="run_time").round(3).to_dict("records")
 
 
 @task(name="6-plot")
