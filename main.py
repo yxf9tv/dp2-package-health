@@ -149,7 +149,12 @@ def load() -> dict:
     _LOADED is touched only after every file is loaded and _load_state is committed.
     """
     log = get_logger("load")
-    report = ld.load_raw(DATA_RAW, DB_PATH, log)
+    try:
+        report = ld.load_raw(DATA_RAW, DB_PATH, log)
+    except Exception:
+        # Keep the reason in logs/load.log too; no _LOADED, so the next run resumes
+        log.exception("load failed, rolled back, _LOADED not written")
+        raise
     LOADED_MARKER.touch()
     log.info("touched %s: next run starts fresh from the watermarks",
              LOADED_MARKER.relative_to(ROOT))
