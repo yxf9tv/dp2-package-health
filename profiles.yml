@@ -4,4 +4,6 @@ package_health:
       type: duckdb
       path: packages.duckdb
       threads: 1
+      settings:
+        TimeZone: UTC  # month buckets and timestamps in UTC, not the machine's zone
   target: dev

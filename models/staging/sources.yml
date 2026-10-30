@@ -1,0 +1,16 @@
+version: 2
+
+# Raw tables written by Task 2 (loader.py). One row per record, upserted on (repo, id).
+sources:
+  - name: raw
+    schema: main
+    description: "Landed GitHub records. Commits and releases come from REST; PRs and reviews from GraphQL."
+    tables:
+      - name: raw_commits
+        description: "One row per commit. id = sha; payload = REST commit object."
+      - name: raw_pull_requests
+        description: "One row per PR. id = PR number; payload = GraphQL PullRequest node (reviews reduced to totalCount)."
+      - name: raw_pr_reviews
+        description: "One row per review. id = review databaseId; payload = GraphQL PullRequestReview node."
+      - name: raw_releases
+        description: "One row per release. id = release id; payload = REST release object."

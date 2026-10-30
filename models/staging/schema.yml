@@ -1,0 +1,125 @@
+version: 2
+
+# Bot rule (all staging models): is_bot = user type is 'Bot' OR login ends in '[bot]'.
+# REST (commits) reads author.type; GraphQL (PRs, reviews) reads author.__typename.
+# A null author (unlinked commit email, deleted account) gives is_bot = false.
+
+models:
+  - name: stg_commits
+    description: "One row per commit in the window (latest copy per repo, sha)."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: sha
+        description: "Commit SHA (natural key; unique across these repos)."
+        data_tests: [unique, not_null]
+      - name: author_login
+        description: "GitHub login linked to the commit author email; null if not linked."
+      - name: is_bot
+        description: "True if the author is a bot (see the bot rule)."
+        data_tests: [not_null]
+      - name: committed_at
+        description: "commit.author.date: when the change was authored (UTC)."
+        data_tests: [not_null]
+      - name: fetched_at
+        description: "When the landing page was fetched (UTC)."
+
+  - name: stg_pull_requests
+    description: "One row per PR updated in the window (latest copy per repo, number)."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: number
+        description: "PR number (unique within a repo)."
+        data_tests: [not_null]
+      - name: pr_key
+        description: "repo#number, the PR primary key across repos."
+        data_tests: [unique, not_null]
+      - name: author_login
+        description: "PR author login; null if the account was deleted."
+      - name: is_bot
+        description: "True if the author is a bot (see the bot rule)."
+        data_tests: [not_null]
+      - name: state
+        description: "open or closed (GraphQL MERGED and CLOSED both map to closed)."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed']
+      - name: is_draft
+        description: "True if the PR is a draft."
+      - name: created_at
+        description: "When the PR was opened (UTC)."
+        data_tests: [not_null]
+      - name: updated_at
+        description: "Last update (UTC)."
+        data_tests: [not_null]
+      - name: closed_at
+        description: "When the PR was closed or merged (UTC); null if open."
+      - name: merged_at
+        description: "When the PR was merged (UTC); null unless merged."
+      - name: review_count_reported
+        description: "reviews.totalCount from GitHub (includes PENDING); used by Task 4 checks."
+      - name: fetched_at
+        description: "When the landing page was fetched (UTC)."
+
+  - name: stg_pr_reviews
+    description: "One row per submitted review (PENDING dropped)."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: review_id
+        description: "Review databaseId (globally unique)."
+        data_tests: [unique, not_null]
+      - name: pr_number
+        description: "Number of the reviewed PR."
+        data_tests: [not_null]
+      - name: pr_key
+        description: "repo#pr_number; every review belongs to a PR in stg_pull_requests."
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_pull_requests')
+                field: pr_key
+      - name: author_login
+        description: "Reviewer login; null if the account was deleted."
+      - name: is_bot
+        description: "True if the reviewer is a bot (see the bot rule)."
+        data_tests: [not_null]
+      - name: state
+        description: "Review outcome."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED']
+      - name: submitted_at
+        description: "When the review was submitted (UTC)."
+        data_tests: [not_null]
+      - name: fetched_at
+        description: "When the landing page was fetched (UTC)."
+
+  - name: stg_releases
+    description: "One row per published release (drafts dropped)."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: release_id
+        description: "Release id (globally unique)."
+        data_tests: [unique, not_null]
+      - name: tag_name
+        description: "Git tag of the release."
+      - name: published_at
+        description: "When the release was published (UTC)."
+        data_tests: [not_null]
+      - name: prerelease
+        description: "True for a pre-release."
+        data_tests: [not_null]
+      - name: fetched_at
+        description: "When the landing page was fetched (UTC)."
