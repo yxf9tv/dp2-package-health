@@ -53,23 +53,21 @@ def _save(fig: plt.Figure, path: Path) -> Path:
 # 1. Dimension profile: one panel per repo in rank order, one bar per dimension
 # ---------------------------------------------------------------------------
 def plot_dimension_profile(ranking: pd.DataFrame, path: Path) -> Path:
-    """Subscores (signed z) per dimension; panel titles carry rank and score."""
+    """Anchored subscores (0-1) per dimension; panel titles carry rank and score."""
     dims = [d for d in DIMENSION_LABELS if d in ranking.columns]
     ranking = ranking.sort_values("rank")
-    limit = max(1.6, ranking[dims].abs().max().max() + 0.8)  # room for value labels
     fig, axes = plt.subplots(1, len(ranking), figsize=(4.2 * len(ranking), 4.2), sharey=True)
     for ax, (_, row) in zip(axes, ranking.iterrows()):
         name, color, _ = _style(row["repo"])
         values = [row[d] for d in dims]
         ax.barh(range(len(dims)), values, color=color, height=0.6, edgecolor="#fcfcfb",
                 linewidth=2)
-        ax.axvline(0, color=MUTED, linewidth=1)
+        ax.axvline(0.5, color=MUTED, linewidth=1, linestyle=(0, (3, 3)))  # midpoint
         for y, v in enumerate(values):  # direct value labels in text ink
-            ax.text(v + (0.05 if v >= 0 else -0.05), y, f"{v:+.2f}", va="center",
-                    ha="left" if v >= 0 else "right", fontsize=9, color=TEXT)
-        ax.set_title(f"#{int(row['rank'])} {name}  (score {row['score']:+.2f})", color=TEXT)
-        ax.set_xlim(-limit, limit)
-        ax.set_xlabel("subscore (mean signed z; + = healthier)")
+            ax.text(v + 0.02, y, f"{v:.2f}", va="center", ha="left", fontsize=9, color=TEXT)
+        ax.set_title(f"#{int(row['rank'])} {name}  (score {row['score']:.2f})", color=TEXT)
+        ax.set_xlim(0, 1.15)  # room for value labels
+        ax.set_xlabel("subscore (0 = bad anchor, 1 = good anchor)")
         ax.grid(axis="y", visible=False)
         ax.tick_params(axis="y", length=0)
     axes[0].set_yticks(range(len(dims)), [DIMENSION_LABELS[d] for d in dims])

@@ -17,8 +17,8 @@ def _monthly():
 
 
 def test_dimension_profile_png(tmp_path):
-    ranking = pd.DataFrame({"repo": REPOS, "rank": [2, 1, 3], "score": [0.2, 0.5, -0.7],
-                            **{d: [0.5, 1.0, -1.4] for d in pl.DIMENSION_LABELS}})
+    ranking = pd.DataFrame({"repo": REPOS, "rank": [2, 1, 3], "score": [0.6, 0.8, 0.3],
+                            **{d: [0.5, 1.0, 0.0] for d in pl.DIMENSION_LABELS}})
     path = pl.plot_dimension_profile(ranking, tmp_path / "a.png")
     assert path.stat().st_size > 10_000
 

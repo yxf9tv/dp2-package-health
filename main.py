@@ -218,6 +218,7 @@ def model() -> list[dict]:
     """Task 5: health score from mart_health_inputs; ranking written to DuckDB.
 
     Writes health_ranking (one row per repo) and health_metric_scores (repo x metric).
+    The main score is anchored 0-1; a signed z-score ranking is logged as a check.
     """
     log = get_logger("model")
     try:
@@ -225,8 +226,11 @@ def model() -> list[dict]:
         with duckdb.connect(str(DB_PATH)) as con:
             inputs = con.execute("SELECT * FROM mart_health_inputs").df()
             run_time = con.execute("SELECT run_time FROM dim_run").fetchall()[0][0]
-            scores = hm.signed_z_scores(inputs)
-            ranked = hm.rank_repos(hm.subscores(scores))
+            z = hm.signed_z_scores(inputs)
+            scores = hm.anchored_scores(inputs).merge(
+                z[["repo", "metric", "z", "signed_z"]], on=["repo", "metric"])
+            ranked = hm.rank_repos(hm.subscores(scores, "score"))
+            z_ranked = hm.rank_repos(hm.subscores(z, "signed_z"))
             ranked["run_time"] = run_time
             con.register("ranked_df", ranked)
             con.register("scores_df", scores)
@@ -235,13 +239,18 @@ def model() -> list[dict]:
     except Exception:
         log.exception("health model failed")
         raise
-    log.info("METRICS (direction, weight of the dimension)\n%s", "\n".join(
-        f"  {m.column:<30} {m.dimension:<17} {'higher' if m.higher_is_better else 'lower ':<6} "
-        f"is healthier  w={hm.WEIGHTS[m.dimension]:.2f}  {m.definition}" for m in hm.METRICS))
-    log.info("SIGNED Z-SCORES (positive = healthier)\n%s", scores.pivot(
-        index="metric", columns="repo", values="signed_z").round(2).to_string())
-    log.info("HEALTH RANKING (score = weighted sum of dimension subscores)\n%s",
+    log.info("METRICS (anchors bad -> good, weight of the dimension)\n%s", "\n".join(
+        f"  {m.column:<30} {m.dimension:<17} {m.bad:>6g} -> {m.good:<6g}"
+        f"{' log' if m.log_scale else '    '}  w={hm.WEIGHTS[m.dimension]:.2f}  {m.definition}"
+        for m in hm.METRICS))
+    log.info("ANCHORED METRIC SCORES (0 = bad anchor, 1 = good anchor)\n%s", scores.pivot(
+        index="metric", columns="repo", values="score").round(2).to_string())
+    log.info("HEALTH RANKING (score = weighted sum of dimension subscores, 0-1)\n%s",
              ranked.drop(columns="run_time").round(2).to_string(index=False))
+    same = ranked["repo"].tolist() == z_ranked["repo"].tolist()
+    log.info("SENSITIVITY: signed z-score ranking (%s order)\n%s",
+             "same" if same else "DIFFERENT", z_ranked[["rank", "repo", "score"]].round(2)
+             .to_string(index=False))
     log.info("wrote health_ranking (%d rows) and health_metric_scores (%d rows) to %s",
              len(ranked), len(scores), DB_PATH.name)
     return ranked.drop(columns="run_time").round(3).to_dict("records")
