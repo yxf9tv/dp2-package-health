@@ -130,13 +130,19 @@ def extract(token: str) -> dict:
     log.info("watermarks: %s", watermarks or "none (full window)")
 
     started, before = time.monotonic(), ODOMETER.total()
-    with make_client(token) as client:
-        # Concurrent fetching: one mapped task run per repo; all share gh_client.LIMITER
-        results = ex.extract_repo.map(
-            repo=REPOS, client=unmapped(client), base=unmapped(DATA_RAW),
-            window_start_iso=unmapped(WINDOW_START_ISO),
-            watermarks=unmapped(watermarks), log=unmapped(log),
-        ).result()
+    try:
+        with make_client(token) as client:
+            # Concurrent fetching: one mapped task run per repo; all share gh_client.LIMITER
+            results = ex.extract_repo.map(
+                repo=REPOS, client=unmapped(client), base=unmapped(DATA_RAW),
+                window_start_iso=unmapped(WINDOW_START_ISO),
+                watermarks=unmapped(watermarks), log=unmapped(log),
+            ).result()
+    except Exception:
+        # Keep the reason in logs/extract.log too; pages already on disk stay for a resume
+        log.exception("extract failed after %d requests; next run resumes",
+                      ODOMETER.total() - before)
+        raise
     log.info("extract done in %.0fs: %d requests this task; odometer %s",
              time.monotonic() - started, ODOMETER.total() - before, ODOMETER.summary())
     return dict(zip(REPOS, results))
