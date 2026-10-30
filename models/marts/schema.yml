@@ -1,0 +1,177 @@
+version: 2
+
+# Human activity: mart_repo_monthly and mart_health_inputs count only human-authored PRs
+# and human commits (is_bot = false; bot rule in models/staging/schema.yml). Bot PRs stay
+# in fct_pull_requests with is_bot = true. Durations are hours: date_diff('second') / 3600.
+# Medians skip NULLs, so open PRs (no merge) and unreviewed PRs (no first review) fall out
+# of the merge and first-review medians; they are kept and counted elsewhere.
+
+models:
+  - name: dim_run
+    description: "One row: run time and analysis window shared by every mart."
+    columns:
+      - name: run_time
+        description: "max(fetched_at) over the staged data; a rebuild with no new data gives the same results."
+        data_tests: [not_null]
+      - name: window_start
+        description: "Start of the analysis window (dbt var window_start, default 2024-01-01)."
+        data_tests: [not_null]
+      - name: window_days
+        description: "Days from window_start to run_time (fractional)."
+        data_tests: [not_null]
+
+  - name: fct_pull_requests
+    description: "One row per PR created on or after window_start, with durations and flags. Open PRs are kept."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: number
+        description: "PR number."
+        data_tests: [not_null]
+      - name: pr_key
+        description: "repo#number (primary key)."
+        data_tests: [unique, not_null]
+      - name: author_login
+        description: "PR author login; null if the account was deleted."
+      - name: is_bot
+        description: "True if the PR author is a bot."
+        data_tests: [not_null]
+      - name: state
+        description: "open or closed at run time."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['open', 'closed']
+      - name: is_draft
+        description: "True if the PR is a draft."
+      - name: created_at
+        description: "When the PR was opened (UTC)."
+        data_tests: [not_null]
+      - name: updated_at
+        description: "Last update (UTC)."
+      - name: closed_at
+        description: "When the PR was closed or merged (UTC); null if open."
+      - name: merged_at
+        description: "When the PR was merged (UTC); null unless merged."
+      - name: is_merged
+        description: "merged_at IS NOT NULL."
+        data_tests: [not_null]
+      - name: is_closed_unmerged
+        description: "state = 'closed' AND merged_at IS NULL."
+        data_tests: [not_null]
+      - name: is_open
+        description: "state = 'open' (open at run time)."
+        data_tests: [not_null]
+      - name: first_review_at
+        description: "First review by someone other than the author and not a bot; null if never reviewed."
+      - name: hours_to_first_review
+        description: "Hours from created_at to first_review_at; null if never reviewed."
+      - name: reviewed_within_7d
+        description: "hours_to_first_review <= 168; false if never reviewed."
+        data_tests: [not_null]
+      - name: hours_to_merge
+        description: "Hours from created_at to merged_at; null unless merged."
+      - name: hours_to_close
+        description: "Hours from created_at to closed_at, merged or not; null if open."
+      - name: is_stale
+        description: "is_open AND updated_at < run_time - 180 days."
+        data_tests: [not_null]
+      - name: has_approving_review
+        description: "Any non-author, non-bot review with state APPROVED."
+        data_tests: [not_null]
+      - name: human_review_count
+        description: "Number of non-author, non-bot submitted reviews."
+        data_tests: [not_null]
+
+  - name: fct_releases
+    description: "One row per published release on or after window_start."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: release_id
+        description: "Release id (primary key)."
+        data_tests: [unique, not_null]
+      - name: tag_name
+        description: "Git tag of the release."
+      - name: published_at
+        description: "When the release was published (UTC)."
+        data_tests: [not_null]
+      - name: is_prerelease
+        description: "True for a pre-release."
+        data_tests: [not_null]
+      - name: days_since_previous
+        description: "Days since the repo's previous release; lag computed before the window filter. Null only for a repo's first release ever."
+
+  - name: mart_repo_monthly
+    description: "Repo x month from the window-start month through the run month; empty months show 0. Human activity only."
+    data_tests:
+      - unique:
+          column_name: "repo || '|' || month"
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [not_null]
+      - name: month
+        description: "First day of the month (UTC)."
+        data_tests: [not_null]
+      - name: month_index
+        description: "Months since the window-start month (0, 1, 2, ...); x axis for trends."
+        data_tests: [not_null]
+      - name: prs_opened
+        description: "Human PRs opened this month (by created_at)."
+        data_tests: [not_null]
+      - name: prs_merged
+        description: "Human PRs merged this month (by merged_at)."
+        data_tests: [not_null]
+      - name: prs_closed_unmerged
+        description: "Human PRs closed without merge this month (by closed_at)."
+        data_tests: [not_null]
+      - name: merge_ratio
+        description: "prs_merged / (prs_merged + prs_closed_unmerged); null when both are 0."
+      - name: median_first_review_hours
+        description: "Median hours_to_first_review of PRs opened this month; unreviewed PRs fall out."
+      - name: median_merge_hours
+        description: "Median hours_to_merge of PRs merged this month."
+      - name: commits
+        description: "Human commits this month (by committed_at)."
+        data_tests: [not_null]
+      - name: active_contributors
+        description: "Distinct human PR authors who opened a PR this month."
+        data_tests: [not_null]
+      - name: is_partial_month
+        description: "True for the run month (incomplete)."
+        data_tests: [not_null]
+
+  - name: mart_health_inputs
+    description: "One row per repo: candidate health metrics for Task 5 (rates, shares, medians, slopes; never raw counts)."
+    columns:
+      - name: repo
+        description: "owner/name"
+        data_tests: [unique, not_null]
+      - name: pct_reviewed_within_7d
+        description: "Share of human PRs created >= 7 days before run time that got a first review within 7 days. Higher is better."
+      - name: median_hours_to_first_review
+        description: "Median hours to first review over reviewed human PRs. Lower is better."
+      - name: merge_ratio
+        description: "Merged / (merged + closed unmerged) over human PRs in the window. Higher is better."
+      - name: median_hours_to_merge
+        description: "Median hours from open to merge over merged human PRs. Lower is better."
+      - name: stale_open_share
+        description: "Share of open human PRs with no update in 180 days. Lower is better."
+      - name: commits_per_week
+        description: "Human commits / (window days / 7). Higher is better."
+      - name: commit_trend
+        description: "regr_slope(commits, month_index) over complete months (commits per month, per month)."
+      - name: commit_trend_pct
+        description: "commit_trend / mean monthly commits: size-free trend (share per month). Higher is better."
+      - name: avg_monthly_active_contributors
+        description: "Mean distinct human PR authors per complete month. Higher is better."
+      - name: top_author_commit_share
+        description: "Share of linked human commits by the most active author (bus-factor risk). Lower is better."
+      - name: releases_per_year
+        description: "Published releases / (window days / 365.25). Higher is better."
+      - name: release_gap_cv
+        description: "stddev / mean of days between releases (lower = more regular)."

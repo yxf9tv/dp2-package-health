@@ -5,6 +5,7 @@ extract (GitHub -> data/raw JSON) -> load (JSON -> DuckDB raw_*) -> dbt build
 -> validate (Python) -> model (health score + rank) -> plot (PNGs).
 """
 
+import json
 import logging
 import os
 import shutil
@@ -15,6 +16,7 @@ from pathlib import Path
 import duckdb
 from prefect import flow, get_run_logger, task, unmapped
 from prefect.blocks.system import Secret
+from prefect_dbt import PrefectDbtRunner, PrefectDbtSettings
 
 import extract as ex
 import loader as ld
@@ -168,10 +170,30 @@ def load() -> dict:
 
 
 @task(name="3-dbt-build")
-def dbt_build() -> None:
-    """Task 3: dbt build (staging, facts, marts, tests). Only task that runs dbt."""
+def dbt_build() -> dict:
+    """Task 3: dbt build (staging, facts, marts, tests). Only task that runs dbt.
+
+    raise_on_failure=True: any failed model or test raises, so the flow fails here.
+    """
     log = get_logger("dbt_task")  # dbt itself writes logs/dbt.log
-    log.info("dbt_build stub")
+    runner = PrefectDbtRunner(
+        settings=PrefectDbtSettings(project_dir=str(ROOT), profiles_dir=str(ROOT)),
+        raise_on_failure=True,
+    )
+    args = ["build", "--vars", json.dumps({"window_start": WINDOW_START})]
+    try:
+        res = runner.invoke(args)
+    except Exception:
+        log.exception("dbt build failed; downstream tasks will not run")
+        raise
+    # One line per model and test, so the singular test results are in logs/dbt_task.log
+    statuses: dict[str, int] = {}
+    for r in res.result.results:
+        status = str(r.status)
+        statuses[status] = statuses.get(status, 0) + 1
+        log.info("%s %s %s", status.upper(), r.node.resource_type, r.node.name)
+    log.info("dbt build ok (window_start=%s): %s", WINDOW_START, statuses)
+    return statuses
 
 
 @task(name="4-validate")
