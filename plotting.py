@@ -135,16 +135,20 @@ def plot_review_vs_merge(monthly: pd.DataFrame, path: Path) -> Path:
         subset=["median_first_review_hours", "merge_ratio"])
     fig, ax = plt.subplots(figsize=(9, 6))
     scale = 400 / max(1, data["active_contributors"].max())
-    for repo, g in data.groupby("repo"):
+    for i, (repo, g) in enumerate(data.groupby("repo")):
         name, color, marker = _style(repo)
         ax.scatter(g["median_first_review_hours"], g["merge_ratio"],
                    s=g["active_contributors"] * scale + 10, color=color, marker=marker,
                    alpha=0.55, edgecolor="#fcfcfb", linewidth=1.5, label=name)
-        # repo median as a labeled cross, so each cloud has a readable center
+        # repo median as a labeled cross, so each cloud has a readable center.
+        # Labels alternate right-up / left-down so nearby medians do not collide.
         cx, cy = g["median_first_review_hours"].median(), g["merge_ratio"].median()
         ax.scatter([cx], [cy], marker="X", s=140, color=color, edgecolor=TEXT, linewidth=1)
-        ax.annotate(f"{name} median", (cx, cy), xytext=(8, 6), textcoords="offset points",
-                    fontsize=9, color=TEXT)
+        right = i % 2 == 0
+        ax.annotate(f"{name} median", (cx, cy), xytext=(10 if right else -10, 8 if right else -14),
+                    textcoords="offset points", fontsize=9, color=TEXT,
+                    ha="left" if right else "right",
+                    bbox={"boxstyle": "round,pad=0.15", "fc": "#fcfcfb", "ec": "none", "alpha": 0.85})
     ax.set_xscale("log")
     ax.set_ylim(0, 1.05)
     ax.set_xlabel("median time to first review in the month (hours, log scale)")
