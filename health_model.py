@@ -57,9 +57,9 @@ METRICS = [
            720, 24, log_scale=True,
            reason="Merged within a day is fast; a typical 30-day wait is slow."),
     Metric("stale_open_share", "backlog",
-           "Share of open human PRs old enough to go stale (created 180+ days ago) "
-           "with no update in 180 days.", 0.5, 0.0,
-           reason="No abandoned PRs is ideal; half of the old open PRs abandoned = overwhelmed."),
+           "Share of open human PRs with no update in 180+ days (rubric definition).",
+           0.5, 0.0,
+           reason="No abandoned PRs is ideal; half of the open queue abandoned = overwhelmed."),
     Metric("commit_trend_pct", "activity",
            "Slope of monthly human commits over complete months / mean monthly commits "
            "(percent change per month; the trend component).", -0.05, 0.05,

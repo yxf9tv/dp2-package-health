@@ -26,11 +26,9 @@ pr_metrics as (
         median(p.hours_to_merge)                                 as median_hours_to_merge,
         -- review quality: merged PRs that had a non-author, non-bot approval
         avg(p.has_approving_review::int) filter (where p.is_merged) as approving_review_share,
-        -- only open PRs old enough to have gone 180 days without an update
+        -- rubric definition: share of all open PRs with no update in 180+ days
         count(*) filter (where p.is_stale)
-            / nullif(count(*) filter (
-                where p.is_open and p.created_at <= run.run_time - interval 180 day), 0)
-                                                                 as stale_open_share
+            / nullif(count(*) filter (where p.is_open), 0)       as stale_open_share
     from prs p
     cross join run
     group by p.repo

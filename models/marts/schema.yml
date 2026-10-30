@@ -162,7 +162,7 @@ models:
       - name: approving_review_share
         description: "Share of merged human PRs with a non-author, non-bot APPROVED review. Higher is better."
       - name: stale_open_share
-        description: "Stale open human PRs / open human PRs created at least 180 days before run_time (only those can be stale). Lower is better."
+        description: "Share of open human PRs with no update in 180+ days (rubric definition; denominator = all open human PRs). Lower is better."
       - name: commits_per_week
         description: "Human commits / (window days / 7). Higher is better."
       - name: commit_trend
