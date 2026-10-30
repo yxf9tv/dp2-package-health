@@ -17,6 +17,7 @@ from prefect import flow, get_run_logger, task, unmapped
 from prefect.blocks.system import Secret
 
 import extract as ex
+import loader as ld
 from gh_client import ODOMETER, make_client
 
 # ---------------------------------------------------------------------------
@@ -142,10 +143,17 @@ def extract(token: str) -> dict:
 
 
 @task(name="2-load")
-def load() -> None:
-    """Task 2: data/raw JSON -> raw_* tables in packages.duckdb."""
+def load() -> dict:
+    """Task 2: data/raw JSON -> raw_* tables in packages.duckdb (upsert on repo, id).
+
+    _LOADED is touched only after every file is loaded and _load_state is committed.
+    """
     log = get_logger("load")
-    log.info("load stub")
+    report = ld.load_raw(DATA_RAW, DB_PATH, log)
+    LOADED_MARKER.touch()
+    log.info("touched %s: next run starts fresh from the watermarks",
+             LOADED_MARKER.relative_to(ROOT))
+    return report
 
 
 @task(name="3-dbt-build")
@@ -194,6 +202,12 @@ def package_health_flow() -> None:
     log.info("flow complete: API odometer = %d requests %s", ODOMETER.total(), ODOMETER.summary())
 
 
+@flow(name="yxf9tv-load-only")
+def load_only_flow() -> dict:
+    """Run Task 2 alone on the files in data/raw/ (proves idempotent loads, no API calls)."""
+    return load()
+
+
 # ---------------------------------------------------------------------------
 # Extended item: REST vs. GraphQL benchmark for PR + review ingestion
 # ---------------------------------------------------------------------------
@@ -226,6 +240,8 @@ if __name__ == "__main__":
     try:
         if sys.argv[1:2] == ["benchmark"]:  # uv run python main.py benchmark
             rest_benchmark_flow()
+        elif sys.argv[1:2] == ["load"]:  # uv run python main.py load
+            load_only_flow()
         else:
             package_health_flow()
     except MissingTokenError as exc:
