@@ -175,6 +175,8 @@ models:
         description: "Mean distinct human PR authors per complete month. Higher is better."
       - name: top_author_commit_share
         description: "Share of linked human commits by the most active author (bus-factor risk). Lower is better."
+      - name: top_reviewer_share
+        description: "Share of (PR, reviewer) pairs on human PRs by the most active non-bot, non-author reviewer (bus factor for reviews). Lower is better."
       - name: releases_per_year
         description: "Published releases / (window days / 365.25). Higher is better."
       - name: release_gap_cv

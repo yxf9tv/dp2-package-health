@@ -74,6 +74,10 @@ METRICS = [
     Metric("top_author_commit_share", "contributor_base",
            "Share of linked human commits by the single most active author (bus-factor risk).",
            0.6, 0.2, reason="Guide: one person doing the work is fragile. 60% bad, 20% spread out."),
+    Metric("top_reviewer_share", "contributor_base",
+           "Share of (PR, reviewer) pairs on human PRs by the single most active non-bot, "
+           "non-author reviewer (bus-factor risk for reviews; CHAOSS counts all contributions).",
+           0.6, 0.2, reason="Same bus-factor logic as commits: if one reviewer leaves, PRs stall."),
 ]
 
 # Weights follow the order of ASSESSING-HEALTH.md: responsiveness first, then the bus

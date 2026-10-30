@@ -76,6 +76,23 @@ author_share as (
     group by repo
 ),
 
+reviewer_share as (
+    -- share of review work by the single most active reviewer (bus factor for reviews).
+    -- Each (PR, reviewer) pair counts once, so back-and-forth rounds do not inflate it.
+    -- Human PRs only; non-bot reviewers who are not the PR author.
+    select repo, max(n) / sum(n) as top_reviewer_share
+    from (
+        select p.repo, r.author_login, count(distinct r.pr_key) as n
+        from {{ ref('stg_pr_reviews') }} r
+        join prs p using (pr_key)
+        where not r.is_bot
+          and r.author_login is not null
+          and r.author_login is distinct from p.author_login
+        group by all
+    )
+    group by repo
+),
+
 release_metrics as (
     select
         f.repo,
@@ -101,6 +118,7 @@ select
     m.commit_cv,
     m.avg_monthly_active_contributors,
     a.top_author_commit_share,
+    rs.top_reviewer_share,
     coalesce(rm.releases_per_year, 0)                            as releases_per_year,
     rm.release_gap_cv
 from repos r
@@ -108,4 +126,5 @@ left join pr_metrics pm using (repo)
 left join monthly m using (repo)
 left join commit_metrics cm using (repo)
 left join author_share a using (repo)
+left join reviewer_share rs using (repo)
 left join release_metrics rm using (repo)
