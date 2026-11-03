@@ -344,9 +344,7 @@ def deploy() -> None:
     from prefect.runner.storage import GitRepository
     from prefect.schedules import Cron
 
-    # The job image lacks some of our pins; its entrypoint pip-installs EXTRA_PIP_PACKAGES
-    pins = [line.strip() for line in (ROOT / "requirements.txt").read_text().splitlines()
-            if line.strip() and not line.startswith(("#", "pytest"))]
+    # The job image (read-only filesystem) already has our dependencies installed
     package_health_flow.from_source(
         source=GitRepository(
             url=GIT_URL,
@@ -363,8 +361,6 @@ def deploy() -> None:
             "cpu_limit": "2",
             "memory_request": "2Gi",
             "memory_limit": "4Gi",
-            # env replaces the pool default, so keep its HOME
-            "env": {"HOME": "/home/prefect", "EXTRA_PIP_PACKAGES": " ".join(pins)},
         },
     )
 
