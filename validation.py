@@ -1,10 +1,11 @@
 """Task 4 helpers: end-to-end checks, outliers and descriptive statistics (no dbt).
 
-Completeness (any failure raises ValidationError):
+Completeness (any failure of checks 1-3 raises ValidationError):
 1. files -> raw:     every distinct (repo, id) in data/raw/ is in its raw table
 2. raw -> staging:   raw row count = staging row count per repo (same filters as staging)
 3. reviews:          sum of GitHub's reviews.totalCount per repo = review rows loaded
 4. commit months:    every repo has commits in every complete month of the window
+                     (a gap warns with the last active month; it does not raise)
 Outliers: IQR rule (Q3 + 3*IQR) per repo on hours to merge and on weekly commits.
 Statistics: per repo median and p90 hours to first review / merge, commits per week,
 releases per year, read from the marts.
@@ -106,7 +107,11 @@ def check_review_totals(con: duckdb.DuckDBPyConnection, log: logging.Logger) -> 
 
 
 def check_commit_months(con: duckdb.DuckDBPyConnection, log: logging.Logger) -> list[str]:
-    """Check 4: every repo has commits in every complete month (the run month is exempt)."""
+    """Check 4: every repo has commits in every complete month (the run month is exempt).
+
+    A gap only warns: GitHub confirms real zero-commit months (dask, 2026-10), which are
+    inactivity, not lost data. The warning names the last earlier month with commits.
+    """
     missing = con.execute("""
         WITH months AS (
             SELECT unnest(generate_series(date_trunc('month', window_start),
@@ -114,21 +119,26 @@ def check_commit_months(con: duckdb.DuckDBPyConnection, log: logging.Logger) -> 
                                           INTERVAL 1 MONTH))::DATE AS month
             FROM dim_run),
         repos AS (SELECT DISTINCT repo FROM stg_commits),
-        have AS (SELECT DISTINCT repo, date_trunc('month', committed_at)::DATE AS month
-                 FROM stg_commits)
-        SELECT r.repo, m.month
-        FROM repos r CROSS JOIN months m
-        LEFT JOIN have h ON h.repo = r.repo AND h.month = m.month
-        WHERE h.month IS NULL ORDER BY 1, 2""").fetchall()
+        have AS (SELECT repo, date_trunc('month', committed_at)::DATE AS month, count(*) AS n
+                 FROM stg_commits GROUP BY ALL),
+        gaps AS (SELECT r.repo, m.month
+                 FROM repos r CROSS JOIN months m
+                 LEFT JOIN have h ON h.repo = r.repo AND h.month = m.month
+                 WHERE h.month IS NULL)
+        SELECT g.repo, g.month, p.month AS last_month, p.n AS last_n
+        FROM gaps g ASOF LEFT JOIN have p ON p.repo = g.repo AND p.month < g.month
+        ORDER BY 1, 2""").fetchall()
     n_months = con.execute("""SELECT date_diff('month', date_trunc('month', window_start),
                                                  date_trunc('month', run_time)) FROM dim_run"""
                            ).fetchall()[0][0]
     if not missing:
         log.info("PASS commit months: every repo has commits in all %d complete months", n_months)
         return []
-    for repo, month in missing:
-        log.info("FAIL commit months %s: no commits in %s", repo, month)
-    return [f"no commits: {repo} {month}" for repo, month in missing]
+    for repo, month, last_month, last_n in missing:
+        last = (f"last commits in {last_month} ({last_n})" if last_month
+                else "no earlier commits in window")
+        log.info("WARN commit months %s: no commits in %s; %s", repo, month, last)
+    return []
 
 
 # ---------------------------------------------------------------------------

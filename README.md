@@ -128,12 +128,12 @@ Full-run requests per repo: GraphQL scikit-learn 137, dask 29, plotly 17; REST s
 
 ## Task 4: validation, outliers and statistics
 
-Task 4 is Python only ([validation.py](validation.py)). It reads the landed files and the DuckDB tables directly. Any failed check raises an error and fails the flow. All checks passed in the full run:
+Task 4 is Python only ([validation.py](validation.py)). It reads the landed files and the DuckDB tables directly. A failed files, staging or reviews check raises an error and fails the flow. All checks passed in the full run:
 
 - **Files → raw:** for each repo and endpoint, every distinct `(repo, id)` in the 264 landing files is in the raw table (for example, scikit-learn reviews: 25,775 in the files, 25,775 in raw).
 - **Raw → staging:** the counts match after the same filters that staging applies (no `PENDING` reviews, no draft releases). The log prints the filter next to each count.
 - **Reviews:** the loaded review count matches the `totalCount` that GitHub reports.
-- **Commit months:** every repo has commits in all 33 complete months. The current, partial month is exempt.
+- **Commit months:** every repo has commits in all 33 complete months. The current, partial month is exempt. A month with no commits logs a `WARN` with the last earlier month that has commits, and it does not fail the flow. GitHub confirms that dask has 0 commits in October 2026 (its last commit is on 2026-09-29), so that gap is inactivity, not lost data. From November 2026 the log shows `WARN commit months dask/dask: no commits in 2026-10-01; last commits in 2026-09-01 (1)`.
 
 **Outliers.** The cutoff is **Q3 + 3 × IQR**, per repo. This is Tukey's "far out" fence. The usual 1.5 × IQR flags too much of a long-tailed duration.
 

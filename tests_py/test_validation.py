@@ -36,9 +36,22 @@ def test_raw_vs_staging_applies_the_staging_filter(con, monkeypatch):
     assert len(va.check_raw_vs_staging(con, LOG)) == 1
 
 
-def test_commit_months_flags_a_gap_but_not_the_run_month(con):
-    failures = va.check_commit_months(con, LOG)
-    assert failures == ["no commits: o/r 2026-02-01"]
+def test_commit_months_warns_on_a_gap_but_not_the_run_month(con, caplog):
+    with caplog.at_level(logging.INFO, logger="test"):
+        failures = va.check_commit_months(con, LOG)
+    assert failures == []  # a month with no commits is real inactivity, not lost data
+    warns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WARN")]
+    assert warns == ["WARN commit months o/r: no commits in 2026-02-01; "
+                     "last commits in 2026-01-01 (1)"]
+
+
+def test_commit_months_gap_at_window_start_has_no_earlier_month(con, caplog):
+    con.execute("DELETE FROM stg_commits WHERE committed_at < '2026-02-01'")
+    with caplog.at_level(logging.INFO, logger="test"):
+        assert va.check_commit_months(con, LOG) == []
+    warns = [r.getMessage() for r in caplog.records if r.getMessage().startswith("WARN")]
+    assert warns == ["WARN commit months o/r: no commits in 2026-01-01; no earlier commits in window",
+                     "WARN commit months o/r: no commits in 2026-02-01; no earlier commits in window"]
 
 
 def test_iqr_flags_only_values_above_q3_plus_3_iqr(con, tmp_path):
