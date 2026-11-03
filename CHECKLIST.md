@@ -61,7 +61,7 @@ Due: Nov 02, 2026. See the [assignment brief](ASSIGNMENT.md) for full grading cr
 
 - [ ] **GraphQL:** PR and review ingestion uses GraphQL with cursor pagination; README logs request counts and runtime for REST vs. GraphQL
 - [ ] **Concurrent fetching:** repos are fetched in parallel under a shared rate limiter; README says where this happens in the code
-- [ ] **Scheduled deployment:** monthly Prefect deployment (the 28th); `DEPLOYMENTS.md` shows the deployment command and the log of one manually triggered run
+- [x] **Scheduled deployment:** monthly Prefect deployment (the 28th); `DEPLOYMENTS.md` shows the deployment command and the log of one manually triggered run
 - [ ] **API odometer:** total requests per flow run is logged, and your count is: ___________
 
 ## After submission
