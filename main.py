@@ -46,6 +46,11 @@ LOADED_MARKER = DATA_RAW / "_LOADED"  # created by Task 2 once data/raw is safe 
 
 SECRET_BLOCK = "yxf9tv-pat"
 
+# Deployment on the SDS Prefect server (see DEPLOYMENTS.md)
+GIT_URL = "https://github.com/yxf9tv/dp2-package-health.git"
+WORK_POOL = "uvasds-k8s-pool"
+DEPLOYMENT_NAME = "yxf9tv-deployment"
+
 
 # ---------------------------------------------------------------------------
 # Logging: every task logs to the Prefect run logger AND to logs/<name>.log
@@ -331,9 +336,44 @@ def rest_benchmark_flow(repo: str = "dask/dask", since: str = "2026-07-01") -> d
     return report
 
 
+# ---------------------------------------------------------------------------
+# Scheduled deployment: monthly on the 28th, run by the uvasds-k8s-pool worker
+# ---------------------------------------------------------------------------
+def deploy() -> None:
+    """Register (or update) the monthly deployment of package_health_flow."""
+    from prefect.runner.storage import GitRepository
+    from prefect.schedules import Cron
+
+    # The job image lacks some of our pins; its entrypoint pip-installs EXTRA_PIP_PACKAGES
+    pins = [line.strip() for line in (ROOT / "requirements.txt").read_text().splitlines()
+            if line.strip() and not line.startswith(("#", "pytest"))]
+    package_health_flow.from_source(
+        source=GitRepository(
+            url=GIT_URL,
+            branch="main",
+            credentials={"access_token": Secret.load(SECRET_BLOCK)},  # block reference, not the value
+        ),
+        entrypoint="main.py:package_health_flow",
+    ).deploy(
+        name=DEPLOYMENT_NAME,
+        work_pool_name=WORK_POOL,
+        schedule=Cron("0 0 28 * *", timezone="America/New_York"),
+        job_variables={
+            "cpu_request": "2",
+            "cpu_limit": "2",
+            "memory_request": "2Gi",
+            "memory_limit": "4Gi",
+            # env replaces the pool default, so keep its HOME
+            "env": {"HOME": "/home/prefect", "EXTRA_PIP_PACKAGES": " ".join(pins)},
+        },
+    )
+
+
 if __name__ == "__main__":
     try:
-        if sys.argv[1:2] == ["benchmark"]:  # uv run python main.py benchmark
+        if sys.argv[1:2] == ["deploy"]:  # uv run python main.py deploy
+            deploy()
+        elif sys.argv[1:2] == ["benchmark"]:  # uv run python main.py benchmark
             rest_benchmark_flow()
         elif sys.argv[1:2] == ["load"]:  # uv run python main.py load
             load_only_flow()
